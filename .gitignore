@@ -1,0 +1,31 @@
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# Java
+backend/target/
+backend/tomcat/
+
+# SSL/Certificados
+**/ssl/
+**/*.p12
+**/*.pem
+**/*.key
+**/*.crt
+**/*.jks
+**/*.csr
+**/*.srl
+
+# Ambiente
+.env
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Logs
+*.log
+
+*.zip
