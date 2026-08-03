@@ -1,82 +1,99 @@
-# PM3 - Grupo 6 - ZadInventory
+# ZadInventory
+
+Sistema de controle de estoque: **Angular** (frontend) + **Spring Boot** (backend) + **MySQL**.
+
+O backend roda como **container único**: um jar executável com Tomcat embutido, pronto para
+deploy no **AWS Elastic Beanstalk** com o banco no **RDS**. Toda a configuração sensível vem
+de variáveis de ambiente — não há credencial no código.
 
 ## Arquitetura
-- **VM1 - Frontend** (Nginx + Angular)
-- **VM2 - Backend** (Spring Boot + Docker)
-- **VM3 - Banco** (MariaDB + Keycloak)
 
-## Pré-requisitos
-- Docker e Docker Compose em cada VM
-- Java 17 + Maven (para compilar o backend)
-- Node.js 18+ e Angular CLI (para compilar o frontend)
-- Certificados SSL wildcard
+| Componente | Tecnologia | Observação |
+|---|---|---|
+| Frontend | Angular + Nginx | build estático servido pelo Nginx |
+| Backend | Spring Boot 3.5 (Java 17), jar com Tomcat embutido | container único, porta 8080 |
+| Banco | MySQL 8.0 | RDS em produção, container no teste local |
+| Autenticação | JWT próprio (`JwtAuthenticationFilter` + `JwtService`) | login em `POST /api/auth/login` |
 
-## Configuração dos IPs
+## Variáveis de ambiente
 
-Atualize os IPs nos arquivos abaixo antes de subir:
+Obrigatórias para o backend subir — sem elas a aplicação falha no start:
 
-| Arquivo | O que mudar |
-|---|---|
-| `backend/docker-compose.yml` | IP do banco no SPRING_DATASOURCE_URL |
-| `backend/docker-compose.yml` | Domínio no JWT_ISSUER_URI |
-| `banco/docker-compose.yml` | IP do banco no KC_DB_URL_HOST |
-| `frontend/default.conf` | IP do backend no proxy_pass /api/ |
-| `frontend/default.conf` | IP do banco no proxy_pass /realms/ |
-| `backend/src/.../SecurityConfig.java` | IP do banco no jwkSetUri |
+| Variável | Descrição | Exemplo |
+|---|---|---|
+| `DB_HOST` | Host do MySQL | `zadinventory.xxxx.us-east-1.rds.amazonaws.com` |
+| `DB_PORT` | Porta do MySQL | `3306` |
+| `DB_NAME` | Nome do database | `zadinventory` |
+| `DB_USER` | Usuário do banco | `admin` |
+| `DB_PASSWORD` | Senha do banco | *(defina no ambiente, nunca no código)* |
+| `JWT_SECRET` | Chave de assinatura do JWT, em **Base64**, com no mínimo 32 bytes | *(gere uma por ambiente)* |
+| `CORS_ORIGINS` | Origens liberadas no CORS, separadas por vírgula | `https://app.exemplo.com,http://localhost:4200` |
 
-Adicione no `/etc/hosts` de cada VM e do cliente:
-```
-IP_VM_FRONTEND    sistema1.net sistema2.net
-IP_VM_BANCO       auth.projeto.local
-```
+Gerando um `JWT_SECRET` válido:
 
-## Subindo o projeto
-
-### 1. VM3 - Banco (subir primeiro)
 ```bash
-cd banco
-docker compose up -d
+openssl rand -base64 32
 ```
 
-### 2. VM2 - Backend
+## Teste local (Docker)
+
+Sobe MySQL 8.0 + backend na mesma rede:
+
 ```bash
-# Compile
+cd backend
+docker compose up --build
+```
+
+A API fica em `http://localhost:8080`. Os valores default do `docker-compose.yml` são
+**apenas para desenvolvimento local**; sobrescreva-os com um arquivo `.env` (já ignorado
+pelo Git) se quiser outros.
+
+## Build do backend
+
+```bash
 cd backend
 mvn clean package -DskipTests
-
-# Copie o .war para a VM
-scp target/zadinventory-0.0.1-SNAPSHOT.war user@IP_VM_BACKEND:/opt/backend/zadinventory-0.0.1-SNAPSHOT.jar
-
-# Na VM do backend
-cd /opt/backend
-docker compose up -d
+java -jar target/zadinventory-0.0.1-SNAPSHOT.jar
 ```
 
-### 3. VM1 - Frontend
+O jar é autocontido (Tomcat embutido) — não precisa de Tomcat externo nem de deploy de `.war`.
+
+## Deploy — Elastic Beanstalk + RDS
+
+1. **RDS**: crie uma instância MySQL 8.0 e anote endpoint, database, usuário e senha.
+2. **Source bundle**: gere um zip com o conteúdo da pasta `backend/` (o `Dockerfile` precisa
+   ficar na raiz do zip):
+   ```bash
+   cd backend
+   zip -r ../zadinventory-backend.zip . -x "target/*" ".git/*"
+   ```
+3. **Elastic Beanstalk**: crie um ambiente com a plataforma **Docker** e faça upload do zip.
+   O EB constrói a imagem pelo `Dockerfile` e publica o container na porta 8080.
+4. **Configuração → Updates, monitoring, and logging → Environment properties**: cadastre
+   todas as variáveis da tabela acima.
+5. **Security group**: libere a porta 3306 do RDS para o security group do ambiente EB.
+
+## Frontend
+
 ```bash
-# Compile
 cd frontend
 npm install
 npm run build
-
-# Copie o dist para a VM
-scp -r dist/zadinventory-frontend/browser/* user@IP_VM_FRONTEND:/var/www/localhost/htdocs/dist/zadinventory-frontend/browser/
-
-# Na VM do frontend
-docker compose up -d
 ```
 
-## Keycloak
-Acesse `http://IP_VM_BANCO:8080/admin` com `admin/admin` e configure:
-- Realm: `zadinventory`
-- Client: `zadinventory-frontend`
-- Valid Redirect URIs: `https://sistema1.net/*`
-- Web Origins: `https://sistema1.net`
+O build sai em `dist/zadinventory-frontend/browser/`. O `frontend/default.conf` é a config do
+Nginx e ainda aponta para os IPs do ambiente antigo — ajuste o `proxy_pass` de `/api/` para a
+URL do ambiente Elastic Beanstalk antes de publicar.
 
 ## Usuários
-| Tipo | Role Keycloak |
+
+| Tipo | Role |
 |---|---|
-| Administrador | GERENTE |
-| Usuário Limitado | FUNCIONARIO |
-| Exclusivo Sistema 1 | SISTEMA1 |
-| Exclusivo Sistema 2 | SISTEMA2 |
+| Administrador | `ROLE_GERENTE` |
+| Usuário limitado | `ROLE_FUNCIONARIO` |
+
+## Pasta `banco/`
+
+Mantida como referência do ambiente antigo (MariaDB + Keycloak em VMs). **Não é usada** na
+arquitetura de container único — em produção o banco é o RDS, e no teste local é o serviço
+`mysql` do `backend/docker-compose.yml`.

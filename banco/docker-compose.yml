@@ -5,10 +5,10 @@ services:
     restart: always
     network_mode: host
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: zadinventory
-      MYSQL_USER: banco
-      MYSQL_PASSWORD: senhabanco
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootlocal}
+      MYSQL_DATABASE: ${DB_NAME:-zadinventory}
+      MYSQL_USER: ${DB_USER:-banco}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?defina MYSQL_PASSWORD no .env}
     volumes:
       - mariadb_data:/var/lib/mysql
 
